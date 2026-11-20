@@ -1,0 +1,13 @@
+# Secrets and state never belong in here.
+.env
+*.db
+*.sqlite
+*.sqlite3
+__pycache__/
+*.pyc
+.venv/
+venv/
+# Runtime data: uploads, rendered answers, generated exports.
+data/
+uploads/
+outputs/

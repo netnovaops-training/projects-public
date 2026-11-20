@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+{% block title %}Record — {{ site_name }}{% endblock %}
+{% block body %}
+{#
+  RECORDING THAT SURVIVES A BAD SIGNAL (2026-09-06).
+
+  Jason: "she has kids or maybe driving or it maybe nosey ... I would like
+  it cashed on her device and then resume even if the browser is in the
+  backgrounded ... and as well to cut out information that is not related
+  to her career."
+
+  Every chunk goes to IndexedDB the moment it exists, and only leaves once
+  the server confirms it. So the order is: recorded -> on her phone ->
+  sent. If the signal dies, the audio is already safe on the device and
+  the queue drains when it comes back.
+#}
+
+<h1>Record</h1>
+
+<div class="card enter card--do" id="recCard">
+  <p class="small muted" style="margin:.2rem 0 1rem">
+    Talk for as long as you like. It keeps every second on your phone first
+    and sends it when there is signal, so a dead spot on the drive costs you
+    nothing. You can pause when someone needs you and carry on after.
+  </p>
+
+  <div class="row" style="gap:.6rem;flex-wrap:wrap;align-items:center">
+    <button type="button" id="btnRec" class="btn">Start recording</button>
+    <button type="button" id="btnPause" class="btn ghost" hidden>Pause</button>
+    <button type="button" id="btnStop" class="btn ghost" hidden>Finish</button>
+    <span id="clock" class="small muted" style="font-variant-numeric:tabular-nums"></span>
+  </div>
+
+  <div id="meter" style="height:6px;border-radius:3px;background:var(--line,#2a2f38);
+       margin:.9rem 0 .4rem;overflow:hidden" hidden>
+    <div id="meterBar" style="height:100%;width:0;background:var(--ok,#2e7d32);
+         transition:width .1s"></div>
+  </div>
+
+  <p class="small muted" id="status" style="margin:.5rem 0 0"></p>
+  <p class="small" id="sync" style="margin:.2rem 0 0"></p>
+</div>
+
+<div class="card enter" id="workCard" hidden>
+  <h2 style="margin-top:0">What you said</h2>
+  <p class="small muted" style="margin:.2rem 0 .9rem">
+    Anything that is not about your work is marked below — the shopping,
+    the children, the false starts. Nothing has been deleted; untick what
+    you do not want and it will not be kept.
+  </p>
+  <div id="segments"></div>
+  <div class="row" style="gap:.6rem;margin-top:1rem;flex-wrap:wrap">
+    <button type="button" id="btnKeep" class="btn">Save what is ticked</button>
+    <button type="button" id="btnAgain" class="btn ghost">Record another</button>
+  </div>
+  <p class="small" id="keepMsg" style="margin:.7rem 0 0"></p>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var ROOT = {{ root|tojson }};
+  var CHUNK_MS = 5000;              // five seconds a chunk
+  var DB_NAME = 'casey-dictation', STORE = 'chunks';
+
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(t) {
+    var d = document.createElement('div'); d.textContent = t == null ? '' : t;
+    return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  var say = function (m) { $('status').textContent = m; };
+
+  // ---- IndexedDB: the chunk survives here before it survives anywhere --
+  // localStorage would not do: it is synchronous, capped around 5MB, and
+  // stores strings, so audio would have to be base64'd -- a third bigger,
+  // on the main thread, every five seconds.
+  var db = null;
+  function openDB() {
+    return new Promise(function (res, rej) {
+      var r = indexedDB.open(DB_NAME, 1);
+      r.onupgradeneeded = function () {
+        r.result.createObjectStore(STORE, { keyPath: 'key' });
+      };
+      r.onsuccess = function () { db = r.result; res(db); };
+      r.onerror = function () { rej(r.error); };
+    });
+  }
+  function put(key, sid, index, blob) {
+    return new Promise(function (res, rej) {
+      var tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).put({ key: key, sid: sid, index: index, blob: blob });
+      tx.oncomplete = res; tx.onerror = function () { rej(tx.error); };
+    });
+  }
+  function del(key) {
+    return new Promise(function (res) {
+      var tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).delete(key);
+      tx.oncomplete = res; tx.onerror = res;
+    });
+  }
+  function pending() {
+    return new Promise(function (res) {
+      var out = [];
+      var tx = db.transaction(STORE, 'readonly');
+      var cur = tx.objectStore(STORE).openCursor();
+      cur.onsuccess = function (e) {
+        var c = e.target.result;
+        if (!c) { res(out); return; }
+        out.push(c.value); c.continue();
+      };
+      cur.onerror = function () { res(out); };
+    });
+  }
+
+  var sid = null, rec = null, stream = null, chunkNo = 0;
+  var started = 0, paused = false, pausedAt = 0, pausedTotal = 0;
+  var sending = false, sentCount = 0;
+
+  function clock() {
+    if (!started) return;
+    var ms = Date.now() - started - pausedTotal - (paused ? Date.now() - pausedAt : 0);
+    var s = Math.floor(ms / 1000);
+    $('clock').textContent = ('0' + Math.floor(s / 60)).slice(-2) + ':' +
+                             ('0' + (s % 60)).slice(-2) + (paused ? '  (paused)' : '');
+  }
+  setInterval(clock, 500);
+
+  function showSync(n) {
+    var el = $('sync');
+    if (!n) { el.textContent = sentCount ? '✓ everything sent' : ''; el.style.color = ''; return; }
+    el.textContent = n + ' piece' + (n === 1 ? '' : 's') + ' waiting on your phone — '
+                   + 'they will send themselves when there is signal';
+    el.style.color = 'var(--warn,#b4690e)';
+  }
+
+  // ---- the upload queue -----------------------------------------------
+  // Drains IndexedDB and deletes each chunk only after the server has
+  // acknowledged it. A chunk is never in neither place.
+  async function drain() {
+    if (sending || !db) return;
+    sending = true;
+    try {
+      var rows = await pending();
+      showSync(rows.length);
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        try {
+          var r = await fetch(ROOT + '/api/dictate/' + row.sid + '/chunk/' + row.index, {
+            method: 'PUT', body: row.blob,
+            headers: { 'Content-Type': 'application/octet-stream' }
+          });
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          await del(row.key);       // only now: acknowledged, then forgotten
+          sentCount++;
+        } catch (e) {
+          // Left in IndexedDB deliberately. The next pass retries it, and
+          // re-sending the same index is harmless -- the server writes it
+          // by number, so a duplicate replaces rather than appends.
+          break;
+        }
+      }
+      showSync((await pending()).length);
+    } finally { sending = false; }
+  }
+  setInterval(drain, 4000);
+  window.addEventListener('online', drain);
+
+  // ---- recording -------------------------------------------------------
+  async function begin() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          // On by default in every browser, and named here so nobody
+          // "optimises" them away later: a kitchen and a car are exactly
+          // what they exist for.
+          echoCancellation: true, noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+    } catch (e) {
+      say('The microphone was refused. Check the site is allowed to use it.');
+      return;
+    }
+    await openDB();
+    var fd = new FormData();
+    var mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus' : '';
+    fd.append('mime', mime || 'audio/webm');
+    var r = await fetch(ROOT + '/api/dictate/start', { method: 'POST', body: fd });
+    sid = (await r.json()).id;
+
+    rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    chunkNo = 0;
+    rec.ondataavailable = async function (e) {
+      if (!e.data || !e.data.size) return;
+      var n = chunkNo++;
+      // TO THE DEVICE FIRST, ALWAYS. Uploading straight from here would
+      // lose the chunk the moment the signal drops mid-request.
+      try { await put(sid + ':' + n, sid, n, e.data); } catch (err) {}
+      drain();
+    };
+    rec.start(CHUNK_MS);
+    started = Date.now(); pausedTotal = 0; paused = false;
+    $('btnRec').hidden = true; $('btnPause').hidden = false; $('btnStop').hidden = false;
+    $('meter').hidden = false;
+    say('Recording. You can lock your phone — it keeps going.');
+    level();
+  }
+
+  // A level meter, so she can see it is hearing her before she talks for
+  // ten minutes into a muted microphone.
+  function level() {
+    try {
+      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      var src = ctx.createMediaStreamSource(stream);
+      var an = ctx.createAnalyser(); an.fftSize = 512;
+      src.connect(an);
+      var buf = new Uint8Array(an.frequencyBinCount);
+      (function tick() {
+        if (!rec || rec.state === 'inactive') { try { ctx.close(); } catch (e) {} return; }
+        an.getByteTimeDomainData(buf);
+        var peak = 0;
+        for (var i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128));
+        $('meterBar').style.width = Math.min(100, (peak / 128) * 180) + '%';
+        requestAnimationFrame(tick);
+      })();
+    } catch (e) {}
+  }
+
+  $('btnRec').addEventListener('click', begin);
+
+  $('btnPause').addEventListener('click', function () {
+    if (!rec) return;
+    if (rec.state === 'recording') {
+      rec.pause(); paused = true; pausedAt = Date.now();
+      $('btnPause').textContent = 'Carry on';
+      say('Paused. Nothing is being recorded.');
+    } else {
+      rec.resume(); paused = false; pausedTotal += Date.now() - pausedAt;
+      $('btnPause').textContent = 'Pause';
+      say('Recording again.');
+    }
+  });
+
+  $('btnStop').addEventListener('click', async function () {
+    if (!rec) return;
+    $('btnStop').disabled = true;
+    rec.stop();
+    try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+    $('btnPause').hidden = true; $('meter').hidden = true;
+    say('Sending the last pieces…');
+    // Everything must land before the server assembles, or the end of the
+    // recording is simply missing from the transcript.
+    for (var i = 0; i < 40; i++) {
+      await drain();
+      if ((await pending()).length === 0) break;
+      await new Promise(function (r) { setTimeout(r, 1500); });
+    }
+    if ((await pending()).length) {
+      say('Some of it is still waiting to send. Leave this page open — '
+        + 'it will finish on its own, and nothing is lost.');
+      $('btnStop').disabled = false;
+      return;
+    }
+    say('Writing it out… this takes a few seconds.');
+    var r = await fetch(ROOT + '/api/dictate/' + sid + '/finish', { method: 'POST' });
+    var d = await r.json();
+    $('btnStop').hidden = true; $('btnRec').hidden = false;
+    $('btnStop').disabled = false;
+    $('btnRec').textContent = 'Record again';
+    if (d.error) { say(d.error); return; }
+    say('Done.');
+    showSegments(d.segments || []);
+  });
+
+  // ---- the transcript, marked --------------------------------------------
+  function showSegments(segs) {
+    if (!segs.length) { say('Nothing came through.'); return; }
+    var h = '';
+    segs.forEach(function (s, i) {
+      h += '<div class="finding" style="border-top:1px solid var(--line,#2a2f38);padding:.7rem 0">'
+        + '<label style="display:flex;gap:.6rem;align-items:flex-start;font-weight:400">'
+        + '<input type="checkbox" data-seg="' + i + '"' + (s.keep ? ' checked' : '') + '>'
+        + '<span><span style="white-space:pre-wrap">' + esc(s.text) + '</span>'
+        + (s.keep ? '' : '<br><span class="small" style="color:var(--warn,#b4690e)">'
+                       + 'not about your work' + (s.why ? ' — ' + esc(s.why) : '') + '</span>')
+        + '</span></label></div>';
+    });
+    $('segments').innerHTML = h;
+    $('workCard').hidden = false;
+    $('workCard').scrollIntoView({ behavior: 'smooth' });
+    window._segs = segs;
+  }
+
+  $('btnKeep').addEventListener('click', async function () {
+    var segs = window._segs || [];
+    document.querySelectorAll('#segments input[data-seg]').forEach(function (cb) {
+      segs[+cb.dataset.seg].keep = cb.checked;
+    });
+    $('btnKeep').disabled = true;
+    $('keepMsg').textContent = 'Saving…';
+    await fetch(ROOT + '/api/dictate/' + sid + '/segments', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ segments: segs })
+    });
+    var r = await fetch(ROOT + '/api/dictate/' + sid + '/keep', { method: 'POST', body: new FormData() });
+    var d = await r.json();
+    $('btnKeep').disabled = false;
+    $('keepMsg').innerHTML = d.doc_url
+      ? d.words + ' words saved, and added to your <a href="' + esc(d.doc_url)
+        + '" target="_blank" rel="noreferrer">working document</a>. '
+        + 'The audio is kept too, in case the words came out wrong.'
+      : d.words + ' words saved. (Could not reach your document just now.)';
+  });
+
+  $('btnAgain').addEventListener('click', function () {
+    $('workCard').hidden = true; $('segments').innerHTML = '';
+    $('keepMsg').textContent = ''; $('clock').textContent = '';
+    sid = null; started = 0; sentCount = 0; showSync(0);
+  });
+
+  // On load, send anything a previous session left behind -- a phone that
+  // ran out of battery mid-drive still has its audio.
+  openDB().then(async function () {
+    var rows = await pending();
+    if (rows.length) {
+      say('Found ' + rows.length + ' piece' + (rows.length === 1 ? '' : 's')
+        + ' from last time still on your phone. Sending them now.');
+      drain();
+    }
+  }).catch(function () {});
+})();
+</script>
+{% endblock %}

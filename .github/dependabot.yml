@@ -1,0 +1,117 @@
+# One Dependabot PR per repo per month: every ecosystem in one multi-ecosystem group,
+# 00:00 New York on the 1st (before the 6 AM pull). Owner's rule 2026-11-19: few, large PRs.
+# Made by Scratchpad tools/dependabot_one_pr.py; edit the ecosystem list here, keep the group.
+version: 2
+multi-ecosystem-groups:
+  all-dependencies:
+    schedule:
+      interval: monthly
+      time: "00:00"
+      timezone: America/New_York
+updates:
+- package-ecosystem: cargo
+  directories:
+  - /tickets
+  - /jasons-site/ai-stack/rust
+  labels:
+  - dependencies
+  - rust
+  patterns:
+  - '*'
+  multi-ecosystem-group: all-dependencies
+- package-ecosystem: pip
+  directories:
+  - /jasons-site/Kitchen
+  - /jasons-site/Mom
+  - /jasons-site/Casey
+  - /jasons-site/recipe-app
+  - /jasons-site/ai-stack/booking
+  - /jasons-site/ai-stack/colibri/c/tools
+  - /jasons-site/ai-stack/colorize
+  - /jasons-site/ai-stack/files
+  - /jasons-site/ai-stack/hermes
+  - /jasons-site/ai-stack/intake
+  - /jasons-site/ai-stack/kb
+  - /jasons-site/ai-stack/metrics
+  - /jasons-site/ai-stack/stt
+  - /jasons-site/ai-stack/tables
+  - /jasons-site/ai-stack/telegram
+  - /jasons-site/ai-stack/telephony
+  - /jasons-site/ai-stack/voice
+  labels:
+  - dependencies
+  - python
+  patterns:
+  - '*'
+  multi-ecosystem-group: all-dependencies
+- package-ecosystem: npm
+  directory: /jasons-site/ai-stack/colibri/web
+  labels:
+  - dependencies
+  - javascript
+  patterns:
+  - '*'
+  multi-ecosystem-group: all-dependencies
+- package-ecosystem: docker
+  directories:
+  - /jasons-site/Mom
+  - /jasons-site/ai-stack/booking
+  - /jasons-site/ai-stack/colibri/docker
+  - /jasons-site/ai-stack/collage
+  - /jasons-site/ai-stack/dj
+  - /jasons-site/ai-stack/find
+  - /jasons-site/ai-stack/hermes
+  - /jasons-site/ai-stack/imagine
+  - /jasons-site/ai-stack/intake
+  - /jasons-site/ai-stack/mealie-skin
+  - /jasons-site/ai-stack/metrics
+  - /jasons-site/ai-stack/n8n
+  - /jasons-site/ai-stack/peewee-tools/studio
+  - /jasons-site/ai-stack/printq
+  - /jasons-site/ai-stack/rust
+  - /jasons-site/ai-stack/stt
+  - /jasons-site/ai-stack/study
+  - /jasons-site/ai-stack/tables
+  - /jasons-site/ai-stack/tagger
+  - /jasons-site/ai-stack/telegram
+  - /jasons-site/ai-stack/telephony
+  - /jasons-site/ai-stack/voice
+  - /jasons-site/ai-stack/watchdog
+  - /jasons-site/ai-stack/web
+  - /tickets
+  labels:
+  - dependencies
+  - docker
+  patterns:
+  - '*'
+  multi-ecosystem-group: all-dependencies
+- package-ecosystem: docker-compose
+  directories:
+  - /jasons-site/Mom
+  - /jasons-site/Mom/tools
+  - /jasons-site/ai-stack
+  - /jasons-site/ai-stack/files
+  - /jasons-site/ai-stack/find
+  - /jasons-site/ai-stack/homebox
+  - /jasons-site/ai-stack/intake
+  - /jasons-site/ai-stack/jellyfin
+  - /jasons-site/ai-stack/kavita
+  - /jasons-site/ai-stack/metrics-stack
+  - /jasons-site/ai-stack/opengym
+  - /jasons-site/ai-stack/owncast
+  - /jasons-site/ai-stack/pi
+  - /jasons-site/ai-stack/study
+  - /jasons-site/ai-stack/wazuh
+  labels:
+  - dependencies
+  - docker
+  patterns:
+  - '*'
+  multi-ecosystem-group: all-dependencies
+- package-ecosystem: github-actions
+  directory: /
+  labels:
+  - dependencies
+  patterns:
+  - '*'
+  multi-ecosystem-group: all-dependencies

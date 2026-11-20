@@ -1,0 +1,139 @@
+# /etc/caddy/Caddyfile
+#
+# One hostname, two completely separate apps, plus room for Apache.
+#
+#   https://example.org/        -> a plain landing page with two links
+#   https://example.org/casey/    -> Zanetta's awards portal   (port 8000)
+#   https://example.org/mama/   -> Mom's Tech Help           (port 8001)
+#   https://example.org/...     -> Apache, if you want it    (port 8080)
+#
+# Caddy gets and renews a free Let's Encrypt certificate automatically. For that
+# to work, ports 80 AND 443 must both be forwarded from the router to this Pi,
+# and the DNS name must already resolve to your home IP before Caddy starts.
+#
+# ---------------------------------------------------------------------------
+# IF YOU ALREADY RUN APACHE ON THIS PI, READ THIS FIRST
+# ---------------------------------------------------------------------------
+# Apache and Caddy cannot both own ports 80 and 443. Caddy has to have them,
+# because it terminates TLS for everything. Move Apache to 8080, listening only
+# on localhost so it is never reachable from outside:
+#
+#   sudo nano /etc/apache2/ports.conf         ->  Listen 127.0.0.1:8080
+#   sudo nano /etc/apache2/sites-enabled/000-default.conf
+#                                             ->  <VirtualHost 127.0.0.1:8080>
+#   sudo systemctl restart apache2
+#   sudo ss -tlnp | grep -E ':(80|443|8080)'  ->  caddy on 80/443, apache on 8080
+#
+# Then uncomment the Apache block near the bottom.
+# ---------------------------------------------------------------------------
+
+{
+	# Replace with your real email. Let's Encrypt uses it for expiry warnings.
+	email YOUR_EMAIL@example.com
+}
+
+example.org {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		Cross-Origin-Opener-Policy "same-origin"
+		-Server
+	}
+
+	# ---- health check, unauthenticated, for uptime monitoring -------------
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	# ---- Zanetta: awards and career portal --------------------------------
+	# handle_path strips the /casey prefix before proxying. The app knows its
+	# public prefix via ZEE_ROOT_PATH and puts it back on every link it makes.
+	redir /casey /casey/ 308
+	handle_path /casey/* {
+		request_body {
+			max_size 512MB
+		}
+		reverse_proxy 127.0.0.1:8000 {
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Prefix /casey
+			transport http {
+				read_timeout 300s
+				write_timeout 300s
+			}
+		}
+	}
+
+	# ---- Mom: tech and cyber help -----------------------------------------
+	redir /mama /mama/ 308
+	handle_path /mama/* {
+		request_body {
+			max_size 64MB
+		}
+		reverse_proxy 127.0.0.1:8001 {
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Prefix /mama
+			transport http {
+				read_timeout 300s
+				write_timeout 300s
+			}
+		}
+	}
+
+	# ---- Everything else ---------------------------------------------------
+	# A neutral landing page. This matters more than it looks: if your mom
+	# mistypes the address she lands here and can find her way, instead of
+	# staring at your sister's login screen wondering what she broke.
+	#
+	# To hand the root over to Apache instead, comment out this handle block
+	# and uncomment the Apache one below.
+	handle {
+		header Content-Type "text/html; charset=utf-8"
+		respond <<HTML
+			<!DOCTYPE html><html lang="en"><head>
+			<meta charset="utf-8">
+			<meta name="viewport" content="width=device-width,initial-scale=1">
+			<meta name="color-scheme" content="light dark">
+			<title>Home</title>
+			<style>
+			:root{color-scheme:light dark}
+			body{margin:0;min-height:100vh;display:grid;place-items:center;
+			  font:17px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+			  background:#f6f7f9;color:#15181d}
+			@media(prefers-color-scheme:dark){body{background:#12151a;color:#e8ecf1}}
+			.wrap{width:min(420px,90vw);text-align:center;padding:2rem 0}
+			a.card{display:block;padding:1.4rem;margin:.9rem 0;border-radius:14px;
+			  background:#1f5f9e;color:#fff;text-decoration:none;font-weight:600;
+			  font-size:1.15rem}
+			a.card small{display:block;font-weight:400;opacity:.85;font-size:.85rem;
+			  margin-top:.3rem}
+			p{opacity:.6;font-size:.85rem}
+			</style></head><body><div class="wrap">
+			<h1>Welcome</h1>
+			<a class="card" href="/mama/">Tech Help<small>Questions about your phone or computer</small></a>
+			<a class="card" href="/casey/">Career Portal<small>Awards and accomplishments</small></a>
+			<p>Runs on hardware at home. Nothing is sent to any cloud service.</p>
+			</div></body></html>
+			HTML 200
+	}
+
+	# ---- Apache (optional) -------------------------------------------------
+	# Uncomment this and comment out the `handle { respond ... }` block above.
+	# Apache must be moved to 127.0.0.1:8080 first -- see the note at the top.
+	#
+	# handle {
+	# 	reverse_proxy 127.0.0.1:8080
+	# }
+
+	log {
+		output file /var/log/caddy/portal.log {
+			roll_size 20MB
+			roll_keep 5
+		}
+	}
+}

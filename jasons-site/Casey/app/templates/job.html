@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}{{ job.orig_name }} — {{ site_name }}{% endblock %}
+{% block body %}
+
+<p class="small"><a href="{{ root }}/">&larr; Back</a></p>
+<h1>{{ job.orig_name }}</h1>
+<p class="small muted">{{ job.created_str }}
+  {%- if job.model_used %} &middot; {{ job.model_used }}{% endif %}
+  {%- if job.kb_version %} &middot; rules version <code>{{ job.kb_version }}</code>{% endif %}</p>
+
+{% if job.status not in ('done','error') %}
+<div class="card enter" id="workingCard">
+  <div class="row"><span class="pill warn">Working&hellip;</span>
+    <span id="prog" class="small muted">{{ job.progress or 'Queued' }}</span></div>
+  <p class="small muted" style="margin-bottom:0">
+    You can close this page. It keeps going without you, and the result will be
+    waiting on the home screen. If the computer was asleep, add about a minute.
+  </p>
+</div>
+{% endif %}
+
+{% if job.status == 'error' %}
+<div class="notice err"><strong>Something went wrong.</strong><br>{{ job.error }}</div>
+<form method="post" action="{{ root }}/job/{{ job.id }}/retry">
+  <button type="submit" class="secondary">Try again</button>
+</form>
+{% endif %}
+
+{% if job.stale %}
+<div class="card enter" style="border-left:4px solid var(--warn)">
+  <h2 style="margin-top:0;font-size:1rem">This was written against older guidance</h2>
+  <p style="margin:.3rem 0 .8rem">
+    Your profile has been corrected since this was drafted &mdash; most
+    importantly your rank. Anything here that says <em>Maj</em> is wrong: you
+    are a Captain, and Major&nbsp;select until you pin on.
+  </p>
+  <form method="post" action="{{ root }}/job/{{ job.id }}/retry">
+    <button type="submit">Redo it with what we know now</button>
+  </form>
+  <p class="small muted" style="margin:.6rem 0 0">
+    The old version stays in your career log &mdash; it is append-only, so
+    nothing is quietly rewritten behind you.
+  </p>
+</div>
+{% endif %}
+{% if job.draft %}
+<h2>Draft</h2>
+<div class="card enter">
+  <textarea id="draftRaw" hidden>{{ job.draft }}</textarea>
+  <div class="output md" id="draft"></div>
+  <div class="row" style="margin-top:.9rem">
+    <button class="secondary" type="button" id="copyBtn">Copy</button>
+    <a class="btn secondary" href="{{ root }}/job/{{ job.id }}/download">Download</a>
+  </div>
+</div>
+{% endif %}
+
+{% if job.followup_list %}
+<h2>A few questions</h2>
+<div class="card enter">
+  <p class="small muted" style="margin-top:0">Answering these is what turns a decent
+    entry into a competitive one. Answer what you can &mdash; skip anything you don't
+    know. One line each is plenty.</p>
+  <ol>{% for q in job.followup_list %}<li style="margin-bottom:.4rem">{{ q }}</li>{% endfor %}</ol>
+  <form method="post" action="{{ root }}/job/{{ job.id }}/answer">
+    <label for="answers">Your answers</label>
+    <textarea id="answers" name="answers" required
+      placeholder="1. About 14 nurses.&#10;2. Roughly 30% fewer, down from about 1 in 8.&#10;3. Yes &mdash; the group nursing director asked us to brief it."></textarea>
+    <button class="big" type="submit">Redo it with these answers</button>
+  </form>
+</div>
+{% endif %}
+
+{% if job.transcript %}
+<details>
+  <summary>What the computer heard (transcript)</summary>
+  <pre>{{ job.transcript }}</pre>
+</details>
+{% endif %}
+
+{% if job.parent_id %}
+<p class="small muted" style="margin-top:1rem">Built on
+  <a href="{{ root }}/job/{{ job.parent_id }}">an earlier version</a>.</p>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* Minimal markdown renderer. Deliberately dependency-free: this box may have no
+   internet at all, so pulling a library from a CDN is not an option. Everything
+   is HTML-escaped first, so untrusted model output cannot inject markup. */
+function esc(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function inline(s){
+  return esc(s)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/\[(NEEDED|VERIFY|OPSEC CHECK|POLICY UNVERIFIED|PHI REMOVED)([^\]]*)\]/g,
+             '<mark class="gap">[$1$2]</mark>');
+}
+function renderMd(src){
+  const out = [];
+  let inList = null, inCode = false, para = [];
+
+  /* Markdown wraps a paragraph across several source lines; join them back
+     together instead of emitting one <p> per line. */
+  function flushPara(){
+    if (para.length) { out.push('<p>' + inline(para.join(' ')) + '</p>'); para = []; }
+  }
+  function closeList(){
+    if (inList) { out.push('</' + inList + '>'); inList = null; }
+  }
+
+  for (const raw of src.split('\n')) {
+    const line = raw.replace(/\s+$/,'');
+
+    if (/^\s*```/.test(line)) {
+      flushPara(); closeList();
+      out.push(inCode ? '</code></pre>' : '<pre><code>'); inCode = !inCode; continue;
+    }
+    if (inCode) { out.push(esc(raw)); continue; }
+
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) {
+      flushPara(); closeList();
+      out.push('<h' + Math.min(h[1].length + 2, 6) + '>' + inline(h[2]) +
+               '</h' + Math.min(h[1].length + 2, 6) + '>');
+      continue;
+    }
+    if (/^\s*>\s?/.test(line)) {
+      flushPara(); closeList();
+      out.push('<blockquote>' + inline(line.replace(/^\s*>\s?/,'')) + '</blockquote>');
+      continue;
+    }
+    if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) {
+      flushPara(); closeList(); out.push('<hr>'); continue;
+    }
+
+    const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    const ul = line.match(/^\s*[-*•]\s+(.*)$/);
+    if (ol || ul) {
+      flushPara();
+      const want = ol ? 'ol' : 'ul';
+      if (inList && inList !== want) closeList();
+      if (!inList) { out.push('<' + want + '>'); inList = want; }
+      out.push('<li>' + inline((ol || ul)[1]) + '</li>');
+      continue;
+    }
+
+    if (!line.trim()) { flushPara(); closeList(); continue; }
+
+    /* A line that is entirely a **bold label:** acts as its own block, so a
+       field like "**Action:** ..." does not get glued onto the line above. */
+    if (/^\*\*[^*]+\*\*/.test(line)) { flushPara(); closeList(); }
+    para.push(line.trim());
+  }
+  flushPara(); closeList();
+  if (inCode) out.push('</code></pre>');
+  return out.join('\n');
+}
+
+(function(){
+  const rawEl = document.getElementById('draftRaw');
+  if (!rawEl) return;
+  const raw = rawEl.value;
+  document.getElementById('draft').innerHTML = renderMd(raw);
+  const btn = document.getElementById('copyBtn');
+  btn.addEventListener('click', function(){
+    navigator.clipboard.writeText(raw).then(function(){
+      btn.textContent = 'Copied'; setTimeout(function(){ btn.textContent = 'Copy'; }, 1800);
+    }, function(){ btn.textContent = 'Press Ctrl+C'; });
+  });
+})();
+
+{% if job.status not in ('done','error') %}
+(function(){
+  const prog = document.getElementById('prog');
+  const timer = setInterval(async function(){
+    try{
+      const r = await fetch('{{ root }}/api/job/{{ job.id }}', {cache:'no-store'});
+      const s = await r.json();
+      if(prog) prog.textContent = s.progress || s.status;
+      if(s.status === 'done' || s.status === 'error'){
+        clearInterval(timer); location.reload();
+      }
+    }catch(e){ /* keep trying */ }
+  }, 5000);
+})();
+{% endif %}
+</script>
+{% endblock %}

@@ -1,0 +1,40 @@
+# The Tickets server's tests and lints, whenever tickets/ changes.
+name: tickets-server
+
+on:
+  push:
+    branches: [main, tickets]
+    paths: ['tickets/**', '.github/workflows/tickets-server.yml']
+  pull_request:
+    branches: [main]
+    paths: ['tickets/**', '.github/workflows/tickets-server.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tickets-server-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: cargo test + clippy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: tickets
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rust stable
+        run: rustup toolchain install stable --profile minimal --component clippy
+      - name: cargo test
+        shell: bash
+        run: |
+          cargo test --locked 2>&1 | tee test.txt
+          grep -E '^test result' test.txt | sed 's/^/- /' | (echo "### Tickets server tests"; cat) >> "$GITHUB_STEP_SUMMARY"
+      - name: cargo clippy (warnings fail)
+        run: cargo clippy --locked --all-targets -- -D warnings

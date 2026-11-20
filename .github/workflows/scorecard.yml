@@ -1,0 +1,51 @@
+# OpenSSF Scorecard: grades the repository's security habits (pinned actions, branch protection,
+# dependency updates, code review, ...). Same tool as garden-for-all, but this repo is private:
+# nothing is published and there is no Security tab, so the scores go to the run's summary page.
+# Saturdays 05:31 UTC and by hand, on the default branch only.
+name: scorecard
+
+on:
+  schedule:
+    - cron: '31 5 * * 6'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scorecard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run Scorecard
+        uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: results.json
+          results_format: json
+          publish_results: false
+
+      - name: Scores on the summary page
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          d = json.load(open("results.json"))
+          print(f"### Scorecard: {d.get('score')} / 10")
+          print("| Check | Score | Why |")
+          print("|---|---|---|")
+          for c in sorted(d.get("checks", []), key=lambda c: c.get("score", -1)):
+              print(f"| {c['name']} | {c.get('score')} | {(c.get('reason') or '').replace('|', '/')} |")
+          EOF

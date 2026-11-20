@@ -1,0 +1,348 @@
+{% extends "base.html" %}
+{% block title %}Home — {{ site_name }}{% endblock %}
+{% block body %}
+
+<h1>Hi {{ user.display_name or user.username }}</h1>
+
+{# WHAT WAS FOUND WHILE SHE WAS AWAY.
+   Above the fold and before the upload box on purpose: a deadline she
+   can still act on is worth more than the next thing she was going to
+   type, and a panel below three cards is a panel nobody scrolls to.
+   Empty renders nothing at all -- an "all clear" box every day teaches
+   her to skip the spot where the real one will appear. #}
+{# YOUR RECORD, GROWING (2026-09-06).
+   Cumulative rather than per-month: per-month is jagged and reads as
+   failure in every quiet month, and what she is building is a record,
+   which only goes up. Server-rendered SVG -- it is one line and a few
+   dots, and a charting library to draw that would be more code, not
+   less, on a page that has to work on a phone with no signal. #}
+{% if growth and growth.any %}
+<section class="card enter" aria-labelledby="growthTitle">
+  <div class="row" style="justify-content:space-between;align-items:baseline;flex-wrap:wrap">
+    <h2 id="growthTitle" style="margin:0">Your record</h2>
+    <span class="small muted">last {{ growth.months }} months</span>
+  </div>
+  {#
+    A MONTH GRID, NOT A LINE (2026-09-07). A line chart interpolates between
+    its points -- it asserts values existed in between -- and "entries this
+    month" has no in-between. At one entry in twenty-four months the old
+    chart drew a flat line along zero and one spike, which pictured the axis
+    rather than her record. Worse, being cumulative, a quiet year and a busy
+    year looked nearly alike, which is the one question it should answer.
+
+    Cells sit on calendar columns so January is always column one. Reading
+    down a column compares the same month across years; reading across a row
+    is a year. Neither is possible with a line.
+  #}
+  {% set active = growth.series | selectattr('added') | list %}
+  {% set busiest = (active | map(attribute='added') | max) if active else 0 %}
+  {% set last = active[-1] if active else None %}
+  {% set MONTHS = ['J','F','M','A','M','J','J','A','S','O','N','D'] %}
+
+  <style>
+    .record-grid { margin-top: .9rem; }
+    .record-grid .yr {
+      display: grid;
+      grid-template-columns: 2.6rem repeat(12, minmax(0, 1fr));
+      gap: 4px; align-items: center; margin-bottom: 4px;
+    }
+    .record-grid .yr-label {
+      font-size: .72rem; color: var(--muted); letter-spacing: .04em;
+      font-variant-numeric: tabular-nums;
+    }
+    .record-grid .cell {
+      aspect-ratio: 1 / 1; border-radius: 3px;
+      background: var(--line); border: 1px solid transparent;
+      transition: transform .12s ease;
+    }
+    /* Four steps, not a continuous ramp: with counts this small a reader
+       compares cells to each other, and discrete steps are easier to tell
+       apart than a gradient. */
+    .record-grid .l1 { background: color-mix(in srgb, var(--accent) 32%, var(--line)); }
+    .record-grid .l2 { background: color-mix(in srgb, var(--accent) 62%, var(--line)); }
+    .record-grid .l3 { background: var(--accent); }
+    .record-grid .cell:hover { transform: scale(1.18); }
+    /* The current month, marked so "now" is locatable without a label. */
+    .record-grid .now { border-color: var(--ink); }
+    .record-grid .months {
+      display: grid; grid-template-columns: 2.6rem repeat(12, minmax(0, 1fr));
+      gap: 4px; margin-top: 2px;
+    }
+    .record-grid .months span {
+      font-size: .6rem; color: var(--muted); text-align: center;
+    }
+    .record-stats {
+      display: flex; flex-wrap: wrap; gap: 1.4rem; margin-top: .9rem;
+    }
+    .record-stats .n {
+      font-size: 1.5rem; font-weight: 600; line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    .record-stats .k {
+      font-size: .68rem; color: var(--muted); text-transform: uppercase;
+      letter-spacing: .07em;
+    }
+    .record-key {
+      display: flex; align-items: center; gap: .35rem; margin-left: auto;
+      font-size: .68rem; color: var(--muted);
+    }
+    .record-key i { width: 10px; height: 10px; border-radius: 2px; display: block; }
+    @media (prefers-reduced-motion: reduce) {
+      .record-grid .cell { transition: none; }
+      .record-grid .cell:hover { transform: none; }
+    }
+  </style>
+
+  <div class="record-grid">
+    {% for yr, items in growth.series | groupby('year') %}
+    <div class="yr">
+      <span class="yr-label">{{ yr }}</span>
+      {% for p in items %}
+        {% set lvl = 'l3' if p.added >= 4 else ('l2' if p.added >= 2 else ('l1' if p.added == 1 else '')) %}
+        <div class="cell {{ lvl }}{{ ' now' if loop.last and yr == growth.series[-1].year else '' }}"
+             style="grid-column: {{ p.month + 1 }}"
+             title="{{ p.year }}-{{ '%02d'|format(p.month) }} &mdash; {{ p.added }} added, {{ p.total }} in the record by then"></div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+    <div class="months">
+      <span></span>
+      {% for m in MONTHS %}<span>{{ m }}</span>{% endfor %}
+    </div>
+  </div>
+
+  {#
+    THE NUMBERS THE PICTURE CANNOT SHOW. "1 entry over 24 months" told her
+    the two least useful facts available. How many months she actually
+    touched it, her best month, and how long since the last one are the
+    things worth acting on.
+  #}
+  <div class="record-stats">
+    <div>
+      <div class="n">{{ growth.total }}</div>
+      <div class="k">{{ 'entry' if growth.total == 1 else 'entries' }}</div>
+    </div>
+    <div>
+      <div class="n">{{ active|length }}<span class="small muted" style="font-weight:400">/{{ growth.months }}</span></div>
+      <div class="k">months active</div>
+    </div>
+    {% if busiest %}
+    <div>
+      <div class="n">{{ busiest }}</div>
+      <div class="k">best month</div>
+    </div>
+    {% endif %}
+    {% if last %}
+    <div>
+      <div class="n" style="font-size:1.05rem;padding-top:.35rem">{{ last.year }}-{{ '%02d'|format(last.month) }}</div>
+      <div class="k">last added</div>
+    </div>
+    {% endif %}
+    <div class="record-key">
+      <span>quiet</span>
+      <i style="background:var(--line)"></i>
+      <i class="l1" style="background:color-mix(in srgb, var(--accent) 32%, var(--line))"></i>
+      <i class="l2" style="background:color-mix(in srgb, var(--accent) 62%, var(--line))"></i>
+      <i style="background:var(--accent)"></i>
+      <span>busy</span>
+    </div>
+  </div>
+
+  {#
+    The old caption was doing real work and is kept in spirit. This is a
+    record kept by somebody with children, a move and a new job; a chart
+    that reads as failure gets closed. An empty cell is quiet, not a stall.
+  #}
+  <p class="small muted" style="margin:.8rem 0 0">
+    {% if growth.total == 0 %}
+      Nothing here yet. One line about something you did this week is enough
+      to light the first square.
+    {% elif active|length <= 2 %}
+      Each square is a month. Add something and this month lights up &mdash;
+      quiet months cost you nothing, they just stay dark.
+    {% else %}
+      Each square is a month, brighter when you added more. The gaps are not
+      failures; the pattern is what a record looks like being kept.
+    {% endif %}
+  </p>
+</section>
+{% endif %}
+
+<section id="new" class="card enter lit findings" hidden>
+  <div class="row" style="justify-content:space-between;align-items:baseline">
+    <h2 style="margin:0">New since you were last here</h2>
+    <button type="button" id="fReadAll" class="btn small ghost">Mark all read</button>
+  </div>
+  <p class="small muted" style="margin:.3rem 0 .8rem">
+    Found by the background pass. Dates come from your awards catalog and
+    still need confirming against the real announcement &mdash; it says so itself.
+  </p>
+  <div id="fList"></div>
+</section>
+
+<div class="card enter tight">
+  <div class="row">
+    <span id="statusPill" class="pill">Checking the desktop&hellip;</span>
+    <span class="small muted" id="statusText"></span>
+  </div>
+  <p class="small muted" style="margin:.6rem 0 0">
+    You don't need to wake anything yourself. Upload whenever you like &mdash; if the
+    computer is asleep it will wake up on its own, do the work, and go back to sleep.
+  </p>
+</div>
+
+<div class="card enter">
+  <h2 style="margin-top:0">Add something new</h2>
+  <form method="post" action="{{ root }}/upload" enctype="multipart/form-data" id="uploadForm">
+
+    <label for="file">Voice recording or document
+      <span class="hint">Voice memo from your phone (.m4a, .mp3, .wav), or a document
+        (.pdf, .docx, .txt). Up to {{ max_mb }} MB. Optional if you type notes below.</span></label>
+    <input id="file" name="file" type="file"
+           accept="audio/*,.m4a,.mp3,.wav,.aac,.ogg,.opus,.flac,.mp4,.webm,.amr,.pdf,.docx,.txt,.md">
+
+    <label for="note">Or just type it
+      <span class="hint">Rough notes are fine. Don't worry about wording &mdash; that's the
+        whole point of this.</span></label>
+    <textarea id="note" name="note" placeholder="Today I ran the quarterly QBL calculator refresher for the night shift&hellip;"></textarea>
+
+    <div class="grid2">
+      <div>
+        <label for="mode">What do you want back?</label>
+        <select id="mode" name="mode">
+          {% for key, label in modes.items() %}
+          <option value="{{ key }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="award_target">Award you have in mind
+          <span class="hint">Only matters for award drafts.</span></label>
+        <select id="award_target" name="award_target">
+          <option value="">Not sure yet</option>
+          {% for t in award_targets %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="notice warn small" style="margin-top:1rem">
+      <strong>Before you record:</strong> no patient names, dates of birth, or medical
+      record numbers, and nothing classified or CUI. Describe what <em>you</em> did and
+      what changed as a result.
+    </div>
+
+    <button class="big" type="submit" id="submitBtn">Send it</button>
+  </form>
+</div>
+
+<h2>Everything you've sent</h2>
+<div class="card enter">
+  {% if jobs %}
+  <ul class="jobs">
+    {% for j in jobs %}
+    <li>
+      <div class="row" style="justify-content:space-between">
+        <a href="{{ root }}/job/{{ j.id }}">{{ j.orig_name }}</a>
+        {% if j.status == 'done' %}<span class="pill ok">Ready</span>
+        {% elif j.status == 'error' %}<span class="pill err">Problem</span>
+        {% else %}<span class="pill warn">Working&hellip;</span>{% endif %}
+      </div>
+      <div class="small muted">
+        {{ j.created_str }} &middot; {{ modes.get(j.mode, j.mode) }}
+        {%- if j.award_target %} &middot; {{ j.award_target }}{% endif %}
+        {%- if j.progress %} &middot; {{ j.progress }}{% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">Nothing yet. Record a two-minute voice memo about something you did
+    this week and send it up &mdash; that's all it takes to start.</p>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// THE BADGE DOES NOT CLEAR ITSELF ON PAGE LOAD. Marking things read
+// because a page rendered is how a notification panel becomes furniture:
+// she would arrive to "3 new", glance away, and the 3 would be gone
+// forever. It clears when she presses the button, and not before.
+(function () {
+  var root = {{ root|tojson }};
+  var box = document.getElementById('new');
+  var list = document.getElementById('fList');
+  if (!box || !list) return;
+  function esc(t) {
+    var d = document.createElement('div'); d.textContent = t == null ? '' : t;
+    return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  var URGENCY = { now: ['Act now', '#b3261e'], soon: ['Soon', '#b4690e'] };
+  fetch(root + '/api/findings?limit=40', { headers: { 'Accept': 'application/json' } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (!d || !d.findings || !d.findings.length) return;
+      var html = '';
+      d.findings.forEach(function (f) {
+        var u = URGENCY[f.urgency];
+        var isNew = !f.seen_at;
+        html += '<article class="finding' + (isNew ? ' isnew' : '') + '">'
+          + '<h3>' + (u ? '<span class="pill" style="background:' + u[1]
+              + ';color:#fff">' + u[0] + '</span> ' : '')
+          + esc(f.title) + (isNew ? ' <span class="dot" title="new"></span>' : '')
+          + '</h3>'
+          + (f.body ? '<p>' + esc(f.body).replace(/
+/g, '<br>') + '</p>' : '')
+          + (f.action ? '<p class="act"><strong>Do:</strong> ' + esc(f.action) + '</p>' : '')
+          + '<p class="small muted">' + esc(f.when)
+          + (f.times_seen > 1 ? ' &middot; still true after ' + f.times_seen + ' passes' : '')
+          + '</p>'
+          + '<form method="post" action="' + root + '/findings/' + encodeURIComponent(f.id)
+          + '/dismiss"><button class="btn small ghost" type="submit">Dismiss</button></form>'
+          + '</article>';
+      });
+      list.innerHTML = html;
+      box.hidden = false;
+    })
+    .catch(function () { /* the panel simply does not appear */ });
+  var btn = document.getElementById('fReadAll');
+  if (btn) btn.addEventListener('click', function () {
+    fetch(root + '/api/findings/seen', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: '{}'
+    }).then(function () { location.reload(); });
+  });
+})();
+</script>
+<script>
+const pill = document.getElementById('statusPill');
+const text = document.getElementById('statusText');
+async function poll(){
+  try{
+    const r = await fetch('{{ root }}/api/status', {cache:'no-store'});
+    if(!r.ok) throw new Error('status ' + r.status);
+    const s = await r.json();
+    if(s.desktop.ready){
+      pill.className = 'pill ok'; pill.textContent = 'Computer is awake and ready';
+      text.textContent = s.active_jobs ? s.active_jobs + ' item(s) processing' : '';
+    } else if(s.active_jobs > 0){
+      pill.className = 'pill warn'; pill.textContent = 'Waking the computer…';
+      text.textContent = 'This usually takes under a minute.';
+    } else {
+      pill.className = 'pill'; pill.textContent = 'Computer is asleep';
+      text.textContent = 'It will wake up by itself when you send something.';
+    }
+  }catch(e){
+    pill.className = 'pill err'; pill.textContent = 'Cannot reach the portal';
+    text.textContent = '';
+  }
+}
+poll(); setInterval(poll, 15000);
+
+document.getElementById('uploadForm').addEventListener('submit', function(){
+  const b = document.getElementById('submitBtn');
+  b.disabled = true; b.textContent = 'Uploading…';
+});
+</script>
+{% endblock %}

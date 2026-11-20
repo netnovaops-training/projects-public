@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+{% block title %}Portfolio — {{ site_name }}{% endblock %}
+{% block body %}
+{#
+  THE PORTFOLIO (2026-09-03).
+
+  A transcript is a record of talking; this is a record of DOING, in the
+  shape a promotion case and an award nomination both ask for --
+  situation, task, action, result, evidence -- so one entry serves both
+  without being rewritten.
+
+  Two copies on purpose. SQLite beside the app is the working copy this
+  page reads and writes; Postgres is the archive that outlives the app,
+  can be dumped, and can be read by something other than the code that
+  wrote it. The mirror is best-effort: if the archive is down the entry
+  is still saved, and the banner says so rather than pretending.
+#}
+<h1>Portfolio</h1>
+
+{# WHERE SHE IS UP TO. The actionable number is "ready and not sent" --
+   an entry that is finished and sitting there is the most recoverable
+   kind of lost opportunity in this whole system, so it is stated first
+   and in the warning colour when it is not zero. #}
+{# WHAT WAS SAID ABOUT THE ENTRY SHE JUST SAVED.
+   Only appears when ?fb= is on the URL, which only happens straight
+   after a save, and it is fetched rather than rendered -- the save
+   itself never waits on a model. See main.py's portfolio_new(). #}
+<section id="fbBox" class="card enter fb" hidden>
+  <h3>About what you just saved</h3>
+  <div id="fbBody"><p class="small muted">Reading it&hellip;</p></div>
+</section>
+
+<div class="card enter" style="border-left:4px solid var(--accent)">
+  <h2 style="margin-top:0">Where things stand</h2>
+
+  {#
+    THE NUMBERS, COUNTING UP. Jason, 2026-09-07: "for the portfolio page use
+    this code for the numbers."
+
+    The real value is the span's own text and the animation paints over it,
+    so every one of these stays selectable, copyable and readable by a
+    screen reader. That matters more here than anywhere else on the site:
+    these are the figures that get pasted into a 1206.
+  #}
+  <div class="statrow">
+    <div><span class="tally" style="--n:{{ stat_entries }}">{{ stat_entries }}</span>
+      <em>{{ 'entry' if stat_entries == 1 else 'entries' }}</em></div>
+    <div><span class="tally" style="--n:{{ stat_quantified }}">{{ stat_quantified }}</span>
+      <em>carry a number</em></div>
+    <div><span class="tally" style="--n:{{ stat_archived }}">{{ stat_archived }}</span>
+      <em>archived</em></div>
+    {% if stat_asking %}
+    <div><span class="tally" style="--n:{{ stat_asking }}">{{ stat_asking }}</span>
+      <em>still asking</em></div>
+    {% endif %}
+  </div>
+  <style>
+    .statrow { display:flex; flex-wrap:wrap; gap:1.6rem; margin:.9rem 0 1.1rem; }
+    .statrow > div { display:flex; flex-direction:column; }
+    .statrow .tally { font-size:1.6rem; font-weight:600; line-height:1.05;
+                      font-variant-numeric:tabular-nums; }
+    .statrow em { font-style:normal; font-size:.68rem; color:var(--muted);
+                  text-transform:uppercase; letter-spacing:.07em; }
+  </style>
+
+  {% for line in progress_lines %}
+    <p style="margin:.35rem 0;{% if 'NOT submitted' in line %}color:var(--warn);font-weight:600{% endif %}">{{ line }}</p>
+  {% endfor %}
+</div>
+
+
+<div class="card enter tight">
+  <div style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap">
+    <span style="font-size:.9rem">
+      {% if archive_ok %}
+        <strong style="color:var(--ok)">Archive connected</strong> — {{ archive_why }}
+      {% else %}
+        <strong style="color:var(--warn)">Working copy only</strong> — {{ archive_why }}
+      {% endif %}
+    </span>
+    {% if unmirrored %}
+      <span style="color:var(--warn);font-size:.88rem">
+        {{ unmirrored }} entr{{ 'y' if unmirrored == 1 else 'ies' }} not yet archived
+      </span>
+    {% endif %}
+    <span style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap">
+      <button id="mirror" type="button"
+              style="padding:.45rem .9rem">Archive now</button>
+      <a class="btn" href="{{ root }}/export/md"
+         style="padding:.45rem .9rem">Markdown</a>
+      <a class="btn" href="{{ root }}/export/xlsx"
+         style="padding:.45rem .9rem">Sheet</a>
+    </span>
+  </div>
+  <p id="mstate" style="margin:.5rem 0 0;color:var(--muted);font-size:.86rem"></p>
+</div>
+
+<div class="card enter">
+  <h2 style="margin-top:0">Write it up from something you said</h2>
+  <p style="margin:.2rem 0 .8rem;color:var(--muted);font-size:.9rem">
+    Pick a recording or an exchange and it is drafted into an entry —
+    situation, task, action, result — using only what the words actually
+    say. Anything the words do not support is left blank for you to fill,
+    never guessed.
+  </p>
+  <form method="post" action="{{ root }}/portfolio/draft">
+    <label>From a recording
+      <select name="source_id" onchange="this.form.kind.value='recording'">
+        <option value="0">—</option>
+        {% for r in recordings %}
+          {% if r.transcript %}
+            <option value="{{ r.id }}">{{ (r.title or r.orig_name)[:70] }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </label>
+    <input type="hidden" name="kind" value="recording">
+    <label>Or paste something
+      <textarea name="text" style="min-height:90px"
+                placeholder="Describe what you did…"></textarea>
+    </label>
+    <button type="submit" style="margin-top:.6rem">Draft an entry</button>
+  </form>
+</div>
+
+<details class="card enter">
+  <summary style="cursor:pointer;font-weight:600">Add one by hand</summary>
+  <form method="post" action="{{ root }}/portfolio/new" style="margin-top:.8rem">
+    <label>Title<input type="text" name="title" required></label>
+    <label>When <span class="hint">YYYY-MM-DD, if you know it</span>
+      <input type="text" name="happened_on" placeholder="2026-08-14"></label>
+    <label>Category
+      <select name="category">
+        {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+      </select></label>
+    <label>Situation<textarea name="situation"></textarea></label>
+    <label>Task<textarea name="task"></textarea></label>
+    <label>Action <span class="hint">what you specifically did</span>
+      <textarea name="action"></textarea></label>
+    <label>Result <span class="hint">what changed, with numbers if you have them</span>
+      <textarea name="result"></textarea></label>
+    <label>Evidence <span class="hint">what would prove it</span>
+      <textarea name="evidence"></textarea></label>
+    <label>Skills<input type="text" name="skills"></label>
+    <label>Award target<input type="text" name="award_target"></label>
+    <button type="submit" style="margin-top:.6rem">Add entry</button>
+  </form>
+</details>
+
+<div class="card enter tight">
+  <form method="get" action="{{ root }}/portfolio"
+        style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center">
+    <label style="margin:0;font-weight:600">Status
+      <select name="status">
+        <option value="">any</option>
+        {% for s in statuses %}
+          <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select></label>
+    <label style="margin:0;font-weight:600">Category
+      <select name="category">
+        <option value="">any</option>
+        {% for c in categories %}
+          <option value="{{ c }}" {% if category == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select></label>
+    <button type="submit">Filter</button>
+  </form>
+</div>
+
+{% if not rows %}
+  <div class="card enter"><p style="margin:.2rem 0;color:var(--muted)">
+    Nothing here yet. Draft one from a recording above, or add it by hand.
+  </p></div>
+{% endif %}
+
+{% for e in rows %}
+<div class="card enter">
+  <form method="post" action="{{ root }}/portfolio/{{ e.id }}/save">
+    <div style="display:flex;gap:.6rem;align-items:baseline;flex-wrap:wrap">
+      <input type="text" name="title" value="{{ e.title }}"
+             style="flex:1;min-width:12rem;font-weight:700">
+      <span style="color:var(--muted);font-size:.8rem">
+        {% if e.mirrored_at %}archived{% else %}<span style="color:var(--warn)">not archived</span>{% endif %}
+        {% if e.model %} · drafted by {{ e.model }}{% endif %}
+      </span>
+    </div>
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.6rem">
+      <label style="flex:1;min-width:9rem;margin:0">When
+        <input type="text" name="happened_on" value="{{ e.happened_on }}"></label>
+      <label style="flex:1;min-width:9rem;margin:0">Category
+        <select name="category">
+          {% for c in categories %}
+            <option value="{{ c }}" {% if e.category == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select></label>
+      <label style="flex:1;min-width:9rem;margin:0">Status
+        <select name="status">
+          {% for s in statuses %}
+            <option value="{{ s }}" {% if e.status == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select></label>
+    </div>
+    <details style="margin-top:.7rem" {% if e.status == 'draft' %}open{% endif %}>
+      <summary style="cursor:pointer;color:var(--accent)">The detail</summary>
+      <label>Situation<textarea name="situation">{{ e.situation }}</textarea></label>
+      <label>Task<textarea name="task">{{ e.task }}</textarea></label>
+      <label>Action<textarea name="action">{{ e.action }}</textarea></label>
+      <label>Result<textarea name="result">{{ e.result }}</textarea></label>
+      <label>Evidence<textarea name="evidence">{{ e.evidence }}</textarea></label>
+      <label>Skills<input type="text" name="skills" value="{{ e.skills }}"></label>
+      <label>Award target<input type="text" name="award_target" value="{{ e.award_target }}"></label>
+      <label>Note<input type="text" name="note" value="{{ e.note }}"></label>
+    </details>
+    <div style="display:flex;gap:.5rem;margin-top:.7rem">
+      <button type="submit" style="padding:.5rem 1rem">Save</button>
+    </div>
+  </form>
+  <form method="post" action="{{ root }}/portfolio/{{ e.id }}/delete"
+        onsubmit="return confirm('Delete this entry? The archive keeps its last copy.')"
+        style="margin-top:.4rem">
+    <button type="submit" style="background:transparent;color:var(--muted);
+            border:1px solid var(--line);padding:.4rem .8rem">Delete</button>
+  </form>
+</div>
+{% endfor %}
+
+<script>
+// Feedback on the entry just saved. Fetched, not rendered: the save
+// redirected immediately and this catches up a second or two later.
+(function () {
+  var id = new URLSearchParams(location.search).get('fb');
+  if (!id || !/^\d+$/.test(id)) return;
+  var box = document.getElementById('fbBox'), body = document.getElementById('fbBody');
+  if (!box || !body) return;
+  box.hidden = false;
+  function esc(t) {
+    var d = document.createElement('div'); d.textContent = t == null ? '' : t;
+    return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  fetch({{ root|tojson }} + '/api/feedback/' + encodeURIComponent(id))
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (!d || (!d.counts_toward && !d.missing && !d.scope_warning)) {
+        // Nothing useful to say is a real outcome, and saying so is
+        // better than leaving "Reading it..." on screen forever.
+        body.innerHTML = '<p class="small muted">Saved. Nothing to add on this one yet.</p>';
+        return;
+      }
+      var h = '';
+      if (d.counts_toward) h += '<p><strong>Could count toward:</strong> ' + esc(d.counts_toward) + '</p>';
+      if (d.missing) h += '<p><strong>Most useful thing missing:</strong> ' + esc(d.missing) + '</p>';
+      if (d.scope_warning) h += '<p class="warn">Scope: ' + esc(d.scope_warning) + '</p>';
+      if (d.model) h += '<p class="small muted">' + esc(d.model) + '</p>';
+      body.innerHTML = h;
+    })
+    .catch(function () {
+      body.innerHTML = '<p class="small muted">Saved. (Could not reach the model just now.)</p>';
+    });
+})();
+</script>
+<script>
+document.getElementById('mirror').addEventListener('click', async () => {
+  const s = document.getElementById('mstate');
+  s.textContent = 'writing to the archive…';
+  try {
+    const r = await fetch({{ root|tojson }} + '/portfolio/mirror', {method: 'POST'});
+    const d = await r.json().catch(() => ({}));
+    s.textContent = d.message || (r.ok ? 'archived' : 'that did not work');
+  } catch(e){ s.textContent = 'that did not work: ' + e.message; }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}ChatGPT — {{ site_name }}{% endblock %}
+{% block body %}
+
+<h1>ChatGPT</h1>
+
+{% if msg %}<p class="warnbox">{{ msg }}</p>{% endif %}
+
+<div class="card enter">
+  <h2 style="margin-top:0">Bring in what you have already told it</h2>
+  <p>
+    There is no way to log into your ChatGPT account from here and pull your
+    chats — an API key gives access to the models, not to your conversations.
+    Nothing can be wired up to do it. What works is the export you run yourself:
+  </p>
+  <p class="warnbox">
+    In ChatGPT: <strong>Settings → Data controls → Export data</strong>.
+    It emails you a link to a <code>.zip</code>. Upload that zip here, whole —
+    you do not need to unpack it.
+  </p>
+  <form method="post" action="{{ root }}/chatgpt/upload" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".zip,.json" required>
+    <button type="submit">Read the export</button>
+  </form>
+  <p class="small muted" style="margin-top:.6rem">
+    The export is held in memory only while you pick a conversation, and is
+    never written to disk. It is your whole chat history, most of which has
+    nothing to do with your career, and there is no reason for this machine to
+    keep a copy of all of it.
+  </p>
+</div>
+
+{% if convs %}
+<div class="card enter">
+  <h2 style="margin-top:0">Pick the conversation</h2>
+  <form method="post" action="{{ root }}/chatgpt/import">
+    <label for="conversation_id">Conversation</label>
+    <select id="conversation_id" name="conversation_id">
+      {% for c in convs %}
+        <option value="{{ c.id }}">{{ c.title }} — {{ c.messages }} messages, {{ c.words }} words</option>
+      {% endfor %}
+    </select>
+    <label style="font-weight:400;margin-top:.8rem">
+      <input type="checkbox" name="extract" value="1" checked>
+      Also draft portfolio entries from what <em>you</em> said in it
+    </label>
+    <p class="small muted" style="margin:.3rem 0 .8rem">
+      Only your own messages are read for this. What the assistant suggested,
+      drafted or speculated about is not evidence of anything you did, and
+      everything it finds is saved as a <strong>draft</strong> for you to
+      confirm.
+    </p>
+    <button type="submit">Import it</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card enter">
+  <h2 style="margin-top:0">Let ChatGPT read and write this record</h2>
+  {% if have_token %}
+    <p>
+      Set up once, and the ChatGPT you already pay for can see your awards, your
+      progress and your record — and write to them. Anything it changes shows up
+      here and on your phone, because there is only one record.
+    </p>
+    <ol>
+      <li>In ChatGPT: <strong>Explore GPTs → Create → Configure → Create new action</strong>.</li>
+      <li>Under <strong>Schema</strong>, choose <em>Import from URL</em> and paste:
+        <br><code>{{ public_url or 'set ZEE_PUBLIC_URL first' }}/actions/openapi.json</code></li>
+      <li>Under <strong>Authentication</strong>: API Key, Auth Type <strong>Bearer</strong>,
+        and paste the token from your <code>.env</code> (<code>ZEE_ACTION_TOKEN</code>).</li>
+      <li>Save the GPT. Ask it "what awards am I chasing?" to check it.</li>
+    </ol>
+    <p class="small muted">
+      That token is the only thing standing between the open internet and this
+      record. Treat it like a password: do not paste it into a chat, and if it
+      ever gets out, change it in <code>.env</code> and restart.
+    </p>
+  {% else %}
+    <p class="warnbox">
+      Not set up yet. The action API refuses every call until
+      <code>ZEE_ACTION_TOKEN</code> is set in <code>.env</code> — it is closed
+      rather than open by default, because a half-configured door looks shut
+      and is not.
+    </p>
+  {% endif %}
+</div>
+
+{% endblock %}

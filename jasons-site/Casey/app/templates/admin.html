@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Admin — {{ site_name }}{% endblock %}
+{% block body %}
+
+<h1>Admin</h1>
+{% if msg %}<div class="notice ok">{{ msg }}</div>{% endif %}
+
+<h2>Desktop</h2>
+<div class="card enter">
+  <div class="row" style="margin-bottom:.8rem">
+    <span class="pill {{ 'ok' if status.ready else 'warn' }}">
+      {{ 'Ready' if status.ready else 'Not ready' }}</span>
+    <span class="pill {{ 'ok' if status.ollama else 'err' }}">Ollama</span>
+    <span class="pill {{ 'ok' if status.whisper else 'err' }}">Whisper</span>
+    <span class="pill {{ 'ok' if status.ssh else 'err' }}">SSH</span>
+  </div>
+  <table>
+    <tr><th>IP</th><td>{{ config.desktop_ip or '(not set)' }}</td></tr>
+    <tr><th>MAC</th><td>{{ config.desktop_mac or '(not set)' }}</td></tr>
+    <tr><th>Model</th><td>{{ config.model }} &middot; context {{ config.num_ctx }}</td></tr>
+    <tr><th>Auto wake / sleep</th><td>{{ config.auto_wake }} / {{ config.auto_sleep }}
+      (idle {{ config.idle_minutes }} min)</td></tr>
+    <tr><th>Models on box</th><td>{{ models|join(', ') if models else '(unreachable)' }}</td></tr>
+  </table>
+  <div class="row" style="margin-top:.9rem">
+    <form method="post" action="{{ root }}/admin/wake"><button type="submit">Wake now</button></form>
+    <form method="post" action="{{ root }}/admin/sleep">
+      <button type="submit" class="secondary">Hibernate now</button></form>
+  </div>
+</div>
+
+<h2>Knowledge base</h2>
+<div class="card enter">
+  <p class="small muted" style="margin-top:0">
+    Version <code>{{ kb_version }}</code> &middot; {{ kb_chars }} characters total.
+    This hash is recorded on every draft, so you can tell exactly which rules produced
+    which output. Edit these files on the Pi under
+    <code>/opt/zeeportal/knowledge/</code>; changes apply to the next job with no
+    restart. <code>git -C /opt/zeeportal checkout knowledge/</code> resets them.
+  </p>
+  <table>
+    <tr><th>File</th><th>Characters</th></tr>
+    {% for name, size in kb_files %}<tr><td><code>{{ name }}</code></td><td>{{ size }}</td></tr>
+    {% else %}<tr><td colspan="2" class="muted">No knowledge files found.</td></tr>{% endfor %}
+  </table>
+</div>
+
+<h2>People</h2>
+<div class="card enter">
+  <p class="small muted" style="margin-top:0">Whoever has signed in at least once, made
+    the moment they first arrive through the site's one shared sign-in -- nothing to add
+    by hand here any more.</p>
+  <table>
+    <tr><th>Email</th><th>Role</th><th>First seen</th></tr>
+    {% for u in users %}
+    <tr><td>{{ u.username }}</td><td>{{ u.role }}</td>
+      <td>{{ u.created_at|fmt_ts }}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="small muted">
+    Who can sign in AT ALL, and specifically here at <code>/casey</code>, is managed in one
+    place: the admin's <a href="/admin/people">People</a> page. Who counts as an admin
+    <strong>here</strong> is the <code>ZEE_OWNERS</code> (or shared <code>ADMIN_OWNERS</code>)
+    address list in <code>.env</code> -- a restart picks up a change.</p>
+</div>
+
+<h2>Recent activity</h2>
+<div class="card enter">
+  <table>
+    <tr><th>When</th><th>Level</th><th>Source</th><th>Message</th></tr>
+    {% for e in events %}
+    <tr><td class="small">{{ e.ts|fmt_ts }}</td>
+        <td class="small">{{ e.level }}</td>
+        <td class="small"><code>{{ e.source }}</code></td>
+        <td class="small">{{ e.message }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+{% endblock %}

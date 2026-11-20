@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}Awards &amp; promotions — {{ site_name }}{% endblock %}
+{% block body %}
+{#
+  ONE AWARD AT A TIME (2026-09-06).
+
+  Jason: "giving her an individual drop down list but allowing all changes
+  that she makes to her career shared between all the sessions."
+
+  So: one dropdown, one award, one state — and that state is the same row
+  the Telegram bot and the ChatGPT action write to. Three front doors, one
+  record. The dropdown is ordered the way she would choose (named targets
+  first, closed doors last), not alphabetically, because alphabetical puts
+  a closed award above her flagship.
+#}
+
+<h1>Awards &amp; promotions</h1>
+
+<form method="get" action="{{ root }}/targets" class="card enter tight">
+  <label for="award">Which one are you working on?
+    <span class="hint">Your notes are saved per award and shared across every
+      way you reach this — the site, Telegram, or ChatGPT.</span></label>
+  <div class="row" style="gap:.6rem;flex-wrap:wrap">
+    <select id="award" name="award" onchange="this.form.submit()"
+            style="flex:1;min-width:18rem">
+      {% for a in awards %}
+        <option value="{{ a.id }}" {% if a.id == chosen %}selected{% endif %}>
+          {% if a.kind == 'closed' %}✕ {% elif a.flagship %}★ {% endif %}{{ a.name }}
+          {%- if a.my_status %} — {{ status_label.get(a.my_status, a.my_status) }}{% endif %}
+        </option>
+      {% endfor %}
+    </select>
+    <noscript><button type="submit">Show</button></noscript>
+  </div>
+</form>
+
+{% if ref %}
+<div class="card enter">
+  <div class="row" style="justify-content:space-between;align-items:baseline;flex-wrap:wrap">
+    <h2 style="margin:0">{{ ref.name }}</h2>
+    <span class="small muted">{{ fmt or 'no set format' }}</span>
+  </div>
+
+  {% if ref.status == 'closed' %}
+    <p class="warnbox">This one is <strong>closed</strong> to you. The file below
+      says why — it is kept so it does not get researched again.</p>
+  {% endif %}
+  {% if ref.gate %}
+    <p class="warnbox"><strong>Gate:</strong> {{ ref.gate }}</p>
+  {% endif %}
+  {% if ref.blocked_on %}
+    <p class="warnbox"><strong>Blocked on:</strong> {{ ref.blocked_on }}</p>
+  {% endif %}
+  {% if ref.nominator_required == 'true' %}
+    <p class="warnbox">Someone else has to nominate you. That is a conversation
+      to start months early, not a form.</p>
+  {% endif %}
+
+  <details style="margin:.8rem 0">
+    <summary>What this award is (the reference half)</summary>
+    <div class="md" style="margin-top:.6rem;white-space:pre-wrap">{{ ref.body }}</div>
+  </details>
+
+  <div class="row" style="gap:.5rem;flex-wrap:wrap">
+    <a class="btn small" href="{{ root }}/targets/{{ chosen }}/export.md">Download this award as .md</a>
+    {% if ref.status != 'closed' %}
+    <a class="btn small ghost" href="{{ root }}/targets/{{ chosen }}/draft.md">Draft it in this award's language</a>
+    {% endif %}
+  </div>
+</div>
+
+<form method="post" action="{{ root }}/targets/{{ chosen }}/save" class="card enter">
+  <h2 style="margin-top:0">Where you are with it</h2>
+
+  <label for="status">Status</label>
+  <select id="status" name="status">
+    {% for s in statuses %}
+      <option value="{{ s }}" {% if state.status == s %}selected{% endif %}>{{ status_label.get(s, s) }}</option>
+    {% endfor %}
+  </select>
+
+  <label for="next_action">Next action
+    <span class="hint">The one thing that moves this forward.</span></label>
+  <textarea id="next_action" name="next_action" rows="2">{{ state.next_action or '' }}</textarea>
+
+  <label for="owner_note">Who needs to nominate you / who you have asked</label>
+  <textarea id="owner_note" name="owner_note" rows="2">{{ state.owner_note or '' }}</textarea>
+
+  <label for="deadline_note">Dates you have confirmed yourself
+    <span class="hint">Dates in the award file still need confirming — this is
+      where the confirmed one goes.</span></label>
+  <textarea id="deadline_note" name="deadline_note" rows="2">{{ state.deadline_note or '' }}</textarea>
+
+  <label for="notes">Notes</label>
+  <textarea id="notes" name="notes" rows="5">{{ state.notes or '' }}</textarea>
+
+  <button type="submit">Save</button>
+  {% if state.updated_at %}
+    <span class="small muted" style="margin-left:.7rem">
+      last changed via {{ state.updated_via or 'the portal' }}</span>
+  {% endif %}
+</form>
+
+{% if ref.status != 'closed' %}
+<div class="card enter">
+  <h2 style="margin-top:0">Write it in this award's language</h2>
+  <p class="small muted">
+    Uses only what is in your portfolio. It will not invent a number — if one is
+    missing here, it is missing from the record, and it will say so.
+  </p>
+  <label for="extra">Anything to bear in mind (optional)</label>
+  <textarea id="extra" name="extra" rows="2"
+            placeholder="e.g. focus on the QBL work, this is for the squadron level"></textarea>
+  <button type="button" id="draftBtn">Draft it</button>
+  <div id="draftOut" style="margin-top:1rem"></div>
+</div>
+{% endif %}
+
+<div class="card enter">
+  <h2 style="margin-top:0">Bring an edited file back</h2>
+  <p class="small muted">
+    Download the .md above, edit it anywhere — including in ChatGPT — and upload
+    it here. Only your half comes back in; the reference half is regenerated, so
+    nothing can quietly rewrite the eligibility rules.
+  </p>
+  <form method="post" action="{{ root }}/targets/import" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".md,.markdown,.txt">
+    <button type="submit">Import</button>
+  </form>
+</div>
+
+{% if history %}
+<div class="card enter tight">
+  <h2 style="margin-top:0">What changed</h2>
+  {% for h in history %}
+    <p class="small" style="margin:.25rem 0">
+      <span class="muted">{{ h.via }}</span> — {{ h.field }}:
+      <span class="muted">{{ (h.old_value or '(empty)')[:40] }}</span> →
+      {{ (h.new_value or '(empty)')[:60] }}
+    </p>
+  {% endfor %}
+</div>
+{% endif %}
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var btn = document.getElementById('draftBtn');
+  if (!btn) return;
+  var out = document.getElementById('draftOut');
+  var root = {{ root|tojson }}, award = {{ chosen|tojson }};
+  function esc(t) {
+    var d = document.createElement('div'); d.textContent = t == null ? '' : t;
+    return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  btn.addEventListener('click', function () {
+    btn.disabled = true;
+    out.innerHTML = '<p class="small muted">Writing it&hellip; this takes a few seconds.</p>';
+    var fd = new FormData();
+    fd.append('extra', (document.getElementById('extra') || {}).value || '');
+    fetch(root + '/api/targets/' + encodeURIComponent(award) + '/draft',
+          { method: 'POST', body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        btn.disabled = false;
+        if (d.error) { out.innerHTML = '<p class="warnbox">' + esc(d.error) + '</p>'; return; }
+        var h = '';
+        if (d.draft) {
+          h += '<div class="draftbox">' + esc(d.draft).replace(/\n/g, '<br>') + '</div>';
+        }
+        if (d.missing && d.missing.length) {
+          h += '<h3>Before this is submittable</h3><ul>';
+          d.missing.forEach(function (m) { h += '<li>' + esc(m) + '</li>'; });
+          h += '</ul>';
+        }
+        if (d.scope_notes) {
+          h += '<p class="warnbox"><strong>Held back:</strong> ' + esc(d.scope_notes) + '</p>';
+        }
+        h += '<p class="small muted">' + esc(d.model || '') +
+             ' &middot; <a href="' + root + '/targets/' + encodeURIComponent(award) +
+             '/draft.md">download as .md</a></p>';
+        out.innerHTML = h;
+      })
+      .catch(function (e) {
+        btn.disabled = false;
+        out.innerHTML = '<p class="warnbox">That did not work: ' + esc(e.message) + '</p>';
+      });
+  });
+})();
+</script>
+{% endblock %}

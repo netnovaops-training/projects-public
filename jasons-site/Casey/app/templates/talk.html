@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Talk it through — {{ site_name }}{% endblock %}
+{% block body %}
+{#
+  THE TALKING PAGE (2026-09-03).
+
+  One button, held down, is the whole interface. Speech goes to the
+  house's own speech service, the answer comes back from Claude, and the
+  answer is spoken as well as written -- so a question and its answer
+  take seconds rather than a typing session.
+
+  Everything said here is kept. The export at the bottom is what carries
+  it out: Markdown for ChatGPT (a subscription has no API, so the
+  document is the bridge she walks across herself), .docx and .xlsx for
+  Google, and a live sync when a service account exists.
+#}
+<h1>Talk it through</h1>
+
+<div class="card enter">
+  <p style="margin:.2rem 0 1rem;color:var(--muted)">
+    Ask it anything — the answer comes back written here and read out
+    loud, in your voice. Every exchange is kept below, and the whole
+    conversation exports as a document.
+  </p>
+
+  <form id="typed">
+    <textarea id="typedText" rows="3"
+              placeholder="Ask something, or tap the microphone on your keyboard and just talk…"
+              style="min-height:78px;font-size:17px"></textarea>
+    <div style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;margin-top:.6rem">
+      <button type="submit" id="ask"
+              style="min-width:11rem;padding:.9rem 1.3rem;font-size:1rem">Ask</button>
+      <span id="state" style="color:var(--muted);font-size:.92rem"></span>
+    </div>
+    <p style="margin:.7rem 0 0;color:var(--muted);font-size:.85rem">
+      Your phone keyboard has a microphone button — dictation there is
+      instant and costs nothing, so there is no recording to upload and
+      nothing to wait for. The answer still comes back spoken.
+    </p>
+  </form>
+
+  <label style="display:flex;align-items:center;gap:.55rem;margin:1rem 0 0;
+                font-weight:600;font-size:.92rem;cursor:pointer">
+    <input type="checkbox" id="quasi" style="width:auto;margin:0">
+    Four-Phase Quasi-Approach
+    <span style="font-weight:400;color:var(--muted);font-size:.85rem">
+      — analysis, two phases of magnificent nonsense, completion
+    </span>
+  </label>
+
+  <p style="margin:1rem 0 0;color:var(--muted);font-size:.85rem">
+    Answering with <strong>{{ model }}</strong>{% if provider != 'claude' %}
+    — the house model, because no Anthropic key is set yet{% endif %}.
+  </p>
+</div>
+
+<div id="thread"></div>
+
+<h2>Kept so far</h2>
+<div class="card enter tight">
+  {% if recent %}
+    <p style="margin:.1rem 0 .8rem;color:var(--muted);font-size:.9rem">
+      {{ recent|length }} recent exchange{{ '' if recent|length == 1 else 's' }}.
+    </p>
+    {% for r in recent %}
+      <details style="border-top:1px solid var(--line);padding:.6rem 0">
+        <summary style="cursor:pointer">{{ r.question[:110] }}</summary>
+        <p style="white-space:pre-wrap;margin:.6rem 0 0">{{ r.answer }}</p>
+        <p style="color:var(--muted);font-size:.8rem;margin:.4rem 0 0">
+          {{ r.model }} · {{ r.asked_by }}
+        </p>
+      </details>
+    {% endfor %}
+  {% else %}
+    <p style="margin:.2rem 0;color:var(--muted)">Nothing yet — ask something.</p>
+  {% endif %}
+</div>
+
+<h2>The running document</h2>
+<div class="card enter">
+  <p style="margin:.1rem 0 .9rem;color:var(--muted);font-size:.92rem">
+    These always work — no accounts, no setup. <strong>Markdown</strong> is
+    the one to hand to ChatGPT for a second opinion; Google Docs and
+    Sheets open the other three directly.
+  </p>
+  <div style="display:flex;gap:.6rem;flex-wrap:wrap">
+    <a class="btn" href="{{ root }}/export/md">Markdown — for ChatGPT</a>
+    <a class="btn" href="{{ root }}/export/docx">Word (.docx)</a>
+    <a class="btn" href="{{ root }}/export/xlsx">Excel (.xlsx)</a>
+    <a class="btn" href="{{ root }}/export/csv">CSV — for Sheets</a>
+  </div>
+
+  <h3>Live Google sync</h3>
+  {% if google_ready %}
+    <p style="margin:.2rem 0 .7rem;color:var(--muted);font-size:.9rem">
+      Writes straight into the shared Doc and Sheet, replacing their
+      contents so they can never drift out of step with the log.
+    </p>
+    <button id="gsync" type="button">Sync to Google now</button>
+    <span id="gstate" style="margin-left:.7rem;color:var(--muted)"></span>
+  {% else %}
+    <p style="margin:.2rem 0;color:var(--muted);font-size:.9rem">
+      Not configured yet. {{ google_why }}
+    </p>
+  {% endif %}
+</div>
+
+<script>
+// -------------------------------------------------------------------
+//  NO RECORDING, NO TRANSCRIPTION (Jason, 2026-09-04). The in-app
+//  recorder meant: capture, upload, wait for Whisper, then wait for the
+//  answer. Two round trips before she heard a word. Her phone keyboard
+//  already has a microphone button -- dictation there is instant, free,
+//  and needs no upload at all -- so the fast path was never the one we
+//  built. The answer still comes back spoken; only the input changed.
+//
+//  It also keeps her recordings off the wire. She is a labour and
+//  delivery nurse and the knowledge base has PHI rules for a reason;
+//  audio that is never captured cannot leak.
+//
+//  The conversation so far rides along as `history` so a follow-up
+//  question does not arrive with no idea what came before.
+// -------------------------------------------------------------------
+const ROOT = {{ root|tojson }};
+const SESSION = new Date().toISOString().slice(0, 10);
+const history = [];
+const state = document.getElementById('state');
+const thread = document.getElementById('thread');
+const ask = document.getElementById('ask');
+let busy = false;
+
+const say = m => { state.textContent = m; };
+
+function bubble(role, text, audio){
+  const d = document.createElement('div');
+  d.className = 'card';
+  d.innerHTML = '<p style="margin:0 0 .3rem;font-weight:600;font-size:.85rem;' +
+    'color:var(--muted)">' + (role === 'user' ? 'You asked' : 'Answer') +
+    '</p><p style="white-space:pre-wrap;margin:0"></p>';
+  d.querySelector('p:last-child').textContent = text;
+  if(audio){
+    const a = document.createElement('audio');
+    a.controls = true; a.src = audio; a.style.marginTop = '.6rem';
+    a.style.width = '100%';
+    d.appendChild(a);
+    a.play().catch(() => {});     // autoplay may be refused; the control remains
+  }
+  thread.appendChild(d);
+  d.scrollIntoView({ behavior: 'smooth', block: 'end' });
+}
+
+async function send(form){
+  if(busy) return;
+  busy = true; ask.disabled = true; say('thinking…');
+  try {
+    form.append('session', SESSION);
+    form.append('quasi', document.getElementById('quasi').checked ? '1' : '0');
+    form.append('history', JSON.stringify(history.slice(-12)));
+    const r = await fetch(ROOT + '/api/ask', { method: 'POST', body: form });
+    const d = await r.json().catch(() => ({}));
+    if(!r.ok){ say(d.detail || 'that did not go through'); return; }
+    bubble('user', d.question);
+    bubble('assistant', d.answer, d.audio);
+    history.push({ role: 'user', content: d.question });
+    history.push({ role: 'assistant', content: d.answer });
+    say('');
+  } catch(e){
+    say('that did not go through: ' + e.message);
+  } finally {
+    busy = false; ask.disabled = false;
+  }
+}
+
+document.getElementById('typed').addEventListener('submit', e => {
+  e.preventDefault();
+  const box = document.getElementById('typedText');
+  const t = box.value.trim();
+  if(!t) return;
+  const fd = new FormData();
+  fd.append('text', t);
+  box.value = '';
+  send(fd);
+});
+
+const g = document.getElementById('gsync');
+if(g) g.addEventListener('click', async () => {
+  const gs = document.getElementById('gstate');
+  g.disabled = true; gs.textContent = 'writing…';
+  try {
+    const fd = new FormData();
+    const r = await fetch(ROOT + '/export/google', { method: 'POST', body: fd });
+    const d = await r.json().catch(() => ({}));
+    gs.textContent = d.message || (r.ok ? 'done' : 'that did not work');
+  } catch(e){
+    gs.textContent = 'that did not work: ' + e.message;
+  } finally { g.disabled = false; }
+});
+</script>
+{% endblock %}

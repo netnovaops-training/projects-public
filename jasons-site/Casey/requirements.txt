@@ -1,0 +1,25 @@
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+jinja2==3.1.6
+python-multipart==0.0.32   # CVE-2026-24486, -42561, -53539 (was 0.0.20)
+itsdangerous==2.2.0
+httpx==0.28.1
+pypdf==6.21.4   # CVE-2026-59935, -59936 (was 5.1.0)
+# The running document (2026-09-03). python-docx and openpyxl produce the
+# real Office files Google Docs and Sheets open natively; exports.py falls
+# back to Markdown/CSV if either is ever missing, so a failed install
+# degrades the format rather than the feature.
+python-docx==1.2.0
+openpyxl==3.1.5
+# The LIVE Google sync only. Everything above works without these -- they
+# are what lets a service account write into the shared Doc and Sheet.
+google-api-python-client==2.201.0
+google-auth==2.62.0
+# The archive (2026-09-03). Postgres holds the durable copy of the
+# portfolio; SQLite stays the working copy the page reads. Binary build so
+# there is no compiler in the image.
+psycopg[binary]==3.3.6
+
+# Outlook .msg reader (2026-09-07). Guarded at the call site, so a build
+# without it degrades to a clear message rather than a traceback.
+extract-msg>=0.57.0

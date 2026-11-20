@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Recordings — {{ site_name }}{% endblock %}
+{% block body %}
+{#
+  HER TAPE (2026-09-03).
+
+  Audio was already being saved but nothing played it back and nothing
+  listed it, which in practice meant it was lost. This is the library:
+  add a recording, it is stored, transcribed in the background, and stays
+  playable with its text beside it.
+
+  The GROWTH star is hers to place. It is what turns the log into a
+  record of progress rather than a pile of transcript, and it is the
+  first thing Hermes reaches for when asked how she is getting on.
+#}
+<h1>Recordings</h1>
+
+<div class="card enter">
+  <form method="post" action="{{ root }}/recordings/upload"
+        enctype="multipart/form-data">
+    <label>Add audio
+      <span class="hint">One file or many. Accepted: {{ audio_ext }} —
+        up to {{ max_mb }} MB each. Each is saved first and transcribed
+        second, so a failed transcript never costs you the recording.</span>
+      <input type="file" name="files" multiple accept="audio/*,video/mp4">
+    </label>
+    <label>Title <span class="hint">optional — what this is</span>
+      <input type="text" name="title" placeholder="e.g. One-to-one with my manager">
+    </label>
+    <label>Note <span class="hint">optional — anything worth remembering about it</span>
+      <input type="text" name="note" placeholder="e.g. discussed the PM move">
+    </label>
+    <button type="submit" style="margin-top:.8rem">Add and transcribe</button>
+  </form>
+</div>
+
+<div class="card enter tight">
+  <form method="get" action="{{ root }}/recordings"
+        style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search titles, notes and transcripts…"
+           style="flex:1;min-width:14rem">
+    <label style="display:flex;align-items:center;gap:.4rem;margin:0;font-weight:600">
+      <input type="checkbox" name="growth" value="1" {% if growth %}checked{% endif %}
+             style="width:auto;margin:0"> Growth only
+    </label>
+    <button type="submit">Search</button>
+    {% if q or growth %}<a class="btn" href="{{ root }}/recordings"
+       style="background:transparent;color:var(--accent)">clear</a>{% endif %}
+  </form>
+</div>
+
+{% if not rows %}
+  <div class="card enter">
+    <p style="margin:.2rem 0;color:var(--muted)">
+      {% if q or growth %}Nothing matched.{% else %}
+      No recordings yet — add one above, or ask something on the
+      <a href="{{ root }}/talk">talking page</a> and it lands here too.{% endif %}
+    </p>
+  </div>
+{% endif %}
+
+{% for r in rows %}
+<div class="card enter">
+  <div style="display:flex;gap:.7rem;align-items:baseline;flex-wrap:wrap">
+    <strong style="font-size:1.02rem">
+      {{ r.title or r.orig_name or 'Untitled recording' }}
+    </strong>
+    {% if r.growth %}<span title="A growth moment"
+      style="color:var(--ok);font-weight:700">★ growth</span>{% endif %}
+    <span style="margin-left:auto;color:var(--muted);font-size:.82rem">
+      {{ r.source }} ·
+      {% if r.status == 'done' %}transcribed
+      {% elif r.status == 'error' %}<span style="color:var(--err)">transcription failed</span>
+      {% elif r.status == 'working' %}transcribing now…
+      {% else %}waiting to transcribe{% endif %}
+    </span>
+  </div>
+
+  {% if r.note %}<p style="margin:.4rem 0 0;color:var(--muted);font-size:.9rem">{{ r.note }}</p>{% endif %}
+
+  <audio controls preload="none" style="width:100%;margin-top:.7rem"
+         src="{{ root }}/recordings/{{ r.id }}/audio"></audio>
+
+  {% if r.transcript %}
+    <details style="margin-top:.6rem">
+      <summary style="cursor:pointer;color:var(--accent)">Transcript</summary>
+      <p style="white-space:pre-wrap;margin:.6rem 0 0">{{ r.transcript }}</p>
+    </details>
+  {% elif r.error %}
+    <p style="margin:.6rem 0 0;color:var(--err);font-size:.88rem">{{ r.error }}</p>
+  {% endif %}
+
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.8rem">
+    <form method="post" action="{{ root }}/recordings/{{ r.id }}/growth">
+      <input type="hidden" name="on" value="{{ 0 if r.growth else 1 }}">
+      <button type="submit" style="background:transparent;color:var(--accent);
+              border:1px solid var(--line);padding:.45rem .8rem">
+        {{ 'Unmark growth' if r.growth else '★ Mark as growth' }}
+      </button>
+    </form>
+    <form method="post" action="{{ root }}/recordings/{{ r.id }}/retranscribe">
+      <button type="submit" style="background:transparent;color:var(--accent);
+              border:1px solid var(--line);padding:.45rem .8rem">
+        Transcribe again
+      </button>
+    </form>
+    <form method="post" action="{{ root }}/recordings/{{ r.id }}/forget"
+          onsubmit="return confirm('Remove this from the list? The audio file itself is kept on disk.')">
+      <button type="submit" style="background:transparent;color:var(--muted);
+              border:1px solid var(--line);padding:.45rem .8rem">
+        Forget
+      </button>
+    </form>
+  </div>
+</div>
+{% endfor %}
+
+{% if rows %}
+<p style="color:var(--muted);font-size:.85rem">
+  {{ rows|length }} recording{{ '' if rows|length == 1 else 's' }} shown.
+  Transcripts are searchable here and by Hermes.
+</p>
+<script>
+// Anything still being transcribed will have finished shortly; a quiet
+// reload beats asking her to press it herself.
+if (document.body.innerText.includes('transcribing now') ||
+    document.body.innerText.includes('waiting to transcribe')) {
+  setTimeout(() => location.reload(), 12000);
+}
+</script>
+{% endif %}
+{% endblock %}
