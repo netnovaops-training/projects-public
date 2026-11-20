@@ -7,13 +7,13 @@
 # The fallback path hands rough text to a model, which does not need clean
 # markup either. A dependency that only improves the fallback of a fallback is
 # not worth a wheel that might not build on a rebuild two years from now.
-fastapi==0.162.0
+fastapi==0.163.1
 uvicorn[standard]==0.54.0
 jinja2==3.1.6
-python-multipart==0.0.32   # CVE-2026-24486, -42561, -53539 (was 0.0.20)
+python-multipart==0.0.34   # CVE-2026-24486, -42561, -53539 (was 0.0.20)
 itsdangerous==2.2.0
 httpx==0.28.1
-tzdata==2026.5
+tzdata==2026.6
 
 # CAUGHT LIVE (2026-08-25), Jason's own request: "use the internet and,
 # YouTuber transcripts and make a helpful walkthrough for my mom." A
@@ -29,4 +29,4 @@ tzdata==2026.5
 # roughly weekly. Upgrading to current fixed it immediately with no
 # extra workaround needed. Worth remembering next time this breaks: try
 # a fresh yt-dlp release before anything else.
-yt-dlp==2026.10.21
+yt-dlp==2026.10.26
